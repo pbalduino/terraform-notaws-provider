@@ -7,27 +7,9 @@ import (
 
   "github.com/aws/aws-sdk-go/aws"
   "github.com/aws/aws-sdk-go/aws/awserr"
-  "github.com/aws/aws-sdk-go/aws/endpoints"
-
-	// "github.com/aws/aws-sdk-go/aws/awsutil"
-	// "github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
-  "github.com/aws/aws-sdk-go/aws/request"
-	// "github.com/aws/aws-sdk-go/private/protocol"
-	// "github.com/aws/aws-sdk-go/private/protocol/restjson"
-  "stash.int.klarna.net/plinio.balduino/terraform-qldb/qldb"
+  "github.com/aws/aws-sdk-go/service/qldb"
 )
-
-func QldbResolver(service, region string, optFns ...func(*endpoints.Options)) (endpoints.ResolvedEndpoint, error) {
-    if service == "qldb" {
-      return endpoints.ResolvedEndpoint{
-        URL:           "http://qldb.us-east-1.amazonaws.com/",
-        SigningRegion: "us-east-1",
-      }, nil
-    }
-
-    return endpoints.DefaultResolver().EndpointFor(service, region, optFns...)
-}
 
 func resourceQldbLedger() *schema.Resource {
   return &schema.Resource{
@@ -52,25 +34,30 @@ func resourceQldbLedger() *schema.Resource {
 }
 
 func qldbLedgerCreate(d *schema.ResourceData, m interface{}) error {
-  sess := session.Must(session.NewSession(&aws.Config{
-	   Region: aws.String("us-east-1"),
-     EndpointResolver: endpoints.ResolverFunc(QldbResolver),
-     // DisableSSL: &[]bool{true}[0],
-   }))
+  sess := session.Must(session.NewSession())
 
-  qldb.New(sess)
+  params := &qldb.CreateLedgerInput{
+    Name: aws.String(d.Get("name").(string)),
+    PermissionsMode: aws.String(d.Get("permissions_mode").(string)),
+  }
+
+  svc := qldb.New(sess)
+
+  svc.CreateLedger(params)
 
   return qldbLedgerRead(d, m)
 }
 
 func qldbLedgerRead(d *schema.ResourceData, m interface{}) error {
   params := &qldb.DescribeLedgerInput{
-    // Name: aws.String(d.Get("name").(string)),
+    Name: aws.String(d.Get("name").(string)),
   }
 
   conn := qldb.New(session.New())
 
   getLedgerOutput, err := conn.DescribeLedger(params)
+
+  log.Println("[DEBUG] getLedgerOutput: ", getLedgerOutput)
 
   if err != nil {
     if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "ResourceNotFoundException" && !d.IsNewResource() {
@@ -80,36 +67,29 @@ func qldbLedgerRead(d *schema.ResourceData, m interface{}) error {
     return err
   }
 
-  log.Printf("bleh %s\n", getLedgerOutput)
+  d.SetId(*getLedgerOutput.Arn)
 
   return nil
 }
 
 func qldbLedgerUpdate(d *schema.ResourceData, m interface{}) error {
-  log.Println("Ledger update")
+  log.Println("[DEBUG] Ledger update")
+
   return qldbLedgerRead(d, m)
 }
 
 func qldbLedgerDelete(d *schema.ResourceData, m interface{}) error {
+  d.SetId("")
   return nil
 }
 
 func test() {
-  log.Println("Testing")
+  log.Println("[DEBUG] Testing")
   params := &qldb.DescribeLedgerInput{
-    // Name: aws.String("core-banking-event-store-dev"),
+    Name: aws.String("core-banking-event-store-wazaap"),
   }
 
-  sess := session.Must(session.NewSession(&aws.Config{
-	   Region: aws.String("us-east-1"),
-     EndpointResolver: endpoints.ResolverFunc(QldbResolver),
-     // DisableSSL: &[]bool{true}[0],
-   }))
-
-  sess.Handlers.Send.PushFront(func(r *request.Request) {
-    log.Printf("Request: %s | %s, Payload: %s",
-		r.ClientInfo.ServiceName, r.Operation, r.Params)
-  })
+  sess := session.Must(session.NewSession())
 
   conn := qldb.New(sess)
 
@@ -121,11 +101,11 @@ func test() {
       log.Printf("Error: %s - %s\n", awsErr.Code(), awsErr.Message())
       return
     }
-    log.Println("?")
+    log.Println("[DEBUG] ?")
     return
   }
 
-  log.Printf("bleh %s\n", getLedgerOutput)
+  log.Printf("bleh %s\n", *getLedgerOutput.Arn)
 
   return
 }
